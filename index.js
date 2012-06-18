@@ -160,11 +160,11 @@ RedisClient.prototype.do_auth = function () {
                 }, 2000); // TODO - magic number alert
                 return;
             } else {
-                return self.emit("error", "Auth error: " + err);
+                return self.emit("error", new Error("Auth error: " + err.message));
             }
         }
         if (res.toString() !== "OK") {
-            return self.emit("error", "Auth failed: " + res.toString());
+            return self.emit("error", new Error("Auth failed: " + res.toString()));
         }
         if (exports.debug_mode) {
             console.log("Auth succeeded " + self.host + ":" + self.port + " id " + self.connection_id);
@@ -290,7 +290,7 @@ RedisClient.prototype.on_info_cmd = function (err, res) {
     var self = this, obj = {}, lines, retry_time;
 
     if (err) {
-        return self.emit("error", "Ready check failed: " + err);
+        return self.emit("error", new Error("Ready check failed: " + err.message));
     }
 
     lines = res.toString().split("\r\n");
@@ -570,6 +570,8 @@ RedisClient.prototype.return_reply = function (reply) {
                     if (this.debug_mode) {
                         console.log("All subscriptions removed, exiting pub/sub mode");
                     }
+                } else {
+                    this.pub_sub_mode = true;
                 }
                 // subscribe commands take an optional callback and also emit an event, but only the first response is included in the callback
                 // TODO - document this or fix it so it works in a more obvious way
@@ -896,6 +898,11 @@ RedisClient.prototype.hmset = function (args, callback) {
         for (i = 0, il = tmp_keys.length; i < il ; i++) {
             key = tmp_keys[i];
             tmp_args.push(key);
+            if (typeof args[1][key] !== "string") {
+                var err = new Error("hmset expected value to be a string", key, ":", args[1][key]);
+                if (callback) return callback(err);
+                else throw err;
+            }
             tmp_args.push(args[1][key]);
         }
         args = tmp_args;
@@ -941,7 +948,7 @@ Multi.prototype.exec = function (callback) {
         if (args.length === 1 && Array.isArray(args[0])) {
             args = args[0];
         }
-        if (command === 'hmset' && typeof args[1] === 'object') {
+        if (command.toLowerCase() === 'hmset' && typeof args[1] === 'object') {
             obj = args.pop();
             Object.keys(obj).forEach(function (key) {
                 args.push(key);
@@ -995,6 +1002,7 @@ Multi.prototype.exec = function (callback) {
         }
     });
 };
+Multi.prototype.EXEC = Multi.prototype.exec;
 
 RedisClient.prototype.multi = function (args) {
     return new Multi(this, args);

@@ -582,6 +582,21 @@ tests.SUBSCRIBE = function () {
     });
 };
 
+tests.SUB_UNSUB_SUB = function () {
+    var name = "SUB_UNSUB_SUB";
+    client3.subscribe('chan3');
+    client3.unsubscribe('chan3');
+    client3.subscribe('chan3', function (err, results) {
+        assert.strictEqual(null, err, "unexpected error: " + err);
+        client2.publish('chan3', 'foo');
+    });
+    client3.on('message', function (channel, message) {
+        assert.strictEqual(channel, 'chan3');
+        assert.strictEqual(message, 'foo');
+        next(name);
+    });
+};
+
 tests.SUBSCRIBE_QUIT = function () {
     var name = "SUBSCRIBE_QUIT";
     client3.on("end", function () {
@@ -1331,6 +1346,24 @@ tests.OPTIONAL_CALLBACK_UNDEFINED = function () {
     client.del("op_cb2");
     client.set("op_cb2", "y", undefined);
     client.get("op_cb2", last(name, require_string("y", name)));
+};
+
+tests.HMSET_THROWS_ON_NON_STRINGS = function () {
+    var name = "HMSET_THROWS_ON_NON_STRINGS";
+    var hash = name;
+    var data = { "a": [ "this is not a string" ] };
+
+    client.hmset(hash, data, cb);
+    function cb(e, r) {
+        assert(e); // should be an error!
+    }
+
+    // alternative way it throws
+    function thrower() {
+        client.hmset(hash, data);
+    }
+    assert.throws(thrower);
+    next(name);
 };
 
 // TODO - need a better way to test auth, maybe auto-config a local Redis server or something.

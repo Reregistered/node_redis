@@ -23,8 +23,12 @@ happen between node and native code modules after a node upgrade.
 
 Simple example, included as `examples/simple.js`:
 
+```js
     var redis = require("redis"),
         client = redis.createClient();
+
+    // if you'd like to select database 3, instead of 0 (default), call
+    // client.select(3, function() { /* ... */ });
 
     client.on("error", function (err) {
         console.log("Error " + err);
@@ -40,6 +44,7 @@ Simple example, included as `examples/simple.js`:
         });
         client.quit();
     });
+```
 
 This will display:
 
@@ -84,7 +89,7 @@ The performance of `node_redis` improves dramatically with pipelining, which hap
 ### Sending Commands
 
 Each Redis command is exposed as a function on the `client` object.
-All functions take either take either an `args` Array plus optional `callback` Function or
+All functions take either an `args` Array plus optional `callback` Function or
 a variable number of individual arguments followed by an optional callback.
 Here is an example of passing an array of arguments and a callback:
 
@@ -98,6 +103,13 @@ Note that in either form the `callback` is optional:
 
     client.set("some key", "some val");
     client.set(["some other key", "some val"]);
+
+If the key is missing, reply will be null (probably):
+
+    client.get("missingkey", function(err, reply) {
+        // reply is null when the key is missing
+        console.log(reply);
+    });
 
 For a list of Redis commands, see [Redis Command Reference](http://redis.io/commands)
 
@@ -186,7 +198,7 @@ be loading the database from disk.  While loading, the server not respond to any
 indicates whether the server is ready for more commands.  When ready, `node_redis` emits a `ready` event.
 Setting `no_ready_check` to `true` will inhibit this check.
 
-
+```js
     var redis = require("redis"),
         client = redis.createClient(null, null, {detect_buffers: true});
 
@@ -202,6 +214,7 @@ Setting `no_ready_check` to `true` will inhibit this check.
         console.log(reply.toString()); // Will print `<Buffer 4f 4b>`
     });
     client.end();
+```
 
 `createClient()` returns a `RedisClient` object that is named `client` in all of the examples here.
 
@@ -212,6 +225,9 @@ first command after connecting.  This can be tricky to coordinate with reconnect
 etc.  To make this easier, `client.auth()` stashes `password` and will send it after each connection,
 including reconnections.  `callback` is invoked only once, after the response to the very first
 `AUTH` command sent.
+NOTE: Your call to `client.auth()` should not be inside the ready handler. If
+you are doing this wrong, `client` will emit an error that looks
+something like this `Error: Ready check failed: ERR operation not permitted`.
 
 ## client.end()
 
@@ -221,6 +237,7 @@ If you want to exit cleanly, call `client.quit()` to send the `QUIT` command aft
 This example closes the connection to the Redis server before the replies have been read.  You probably don't 
 want to do this:
 
+```js
     var redis = require("redis"),
         client = redis.createClient();
 
@@ -229,6 +246,7 @@ want to do this:
         console.log(reply.toString());
     });
     client.end();
+```
 
 `client.end()` is useful for timeout cases where something is stuck or taking too long and you want 
 to start over.
@@ -259,7 +277,7 @@ Output:
 Multiple values in a hash can be set by supplying an object:
 
     client.HMSET(key2, {
-        "0123456789": "abcdefghij",
+        "0123456789": "abcdefghij", // NOTE: the key and value must both be strings
         "some manner of key": "a type of value"
     });
 
@@ -278,6 +296,7 @@ Here is a simple example of the API for publish / subscribe.  This program opens
 client connections, subscribes to a channel on one of them, and publishes to that 
 channel on the other:
 
+```js
     var redis = require("redis"),
         client1 = redis.createClient(), client2 = redis.createClient(),
         msg_count = 0;
@@ -300,6 +319,7 @@ channel on the other:
 
     client1.incr("did a thing");
     client1.subscribe("a nice channel");
+```
 
 When a client issues a `SUBSCRIBE` or `PSUBSCRIBE`, that connection is put into "pub/sub" mode.
 At that point, only commands that modify the subscription set are valid.  When the subscription 
@@ -349,6 +369,7 @@ channel name as `channel` and the new count of subscriptions for this client as 
 `MULTI` commands are queued up until an `EXEC` is issued, and then all commands are run atomically by
 Redis.  The interface in `node_redis` is to return an individual `Multi` object by calling `client.multi()`.
 
+```js
     var redis  = require("./index"),
         client = redis.createClient(), set_size = 20;
 
@@ -365,6 +386,8 @@ Redis.  The interface in `node_redis` is to return an individual `Multi` object 
         .scard("bigset")
         .smembers("bigset")
         .keys("*", function (err, replies) {
+            // NOTE: code in this callback is NOT atomic
+            // this only happens after the the .exec call finishes.
             client.mget(replies, redis.print);
         })
         .dbsize()
@@ -374,6 +397,7 @@ Redis.  The interface in `node_redis` is to return an individual `Multi` object 
                 console.log("Reply " + index + ": " + reply.toString());
             });
         });
+```
 
 `client.multi()` is a constructor that returns a `Multi` object.  `Multi` objects share all of the
 same command methods as `client` objects do.  Commands are queued up inside the `Multi` object
@@ -382,6 +406,7 @@ until `Multi.exec()` is invoked.
 You can either chain together `MULTI` commands as in the above example, or you can queue individual
 commands while still sending regular client command as in this example:
 
+```js
     var redis  = require("redis"),
         client = redis.createClient(), multi;
 
@@ -403,10 +428,12 @@ commands while still sending regular client command as in this example:
         console.log(replies); // 102, 3
         client.quit();
     });
+```
 
 In addition to adding commands to the `MULTI` queue individually, you can also pass an array 
 of commands and arguments to the constructor:
 
+```js
     var redis  = require("redis"),
         client = redis.createClient(), multi;
 
@@ -417,6 +444,7 @@ of commands and arguments to the constructor:
     ]).exec(function (err, replies) {
         console.log(replies);
     });
+```
 
 
 ## Monitor mode
@@ -430,6 +458,7 @@ will emit a `monitor` event for every new monitor message that comes across.  Th
 
 Here is a simple example:
 
+```js
     var client  = require("redis").createClient(),
         util = require("util");
 
@@ -440,7 +469,7 @@ Here is a simple example:
     client.on("monitor", function (time, args) {
         console.log(time + ": " + util.inspect(args));
     });
-
+```
 
 # Extras
 
@@ -462,6 +491,7 @@ The `versions` key contains an array of the elements of the version string for e
 
 A handy callback function for displaying return values when testing.  Example:
 
+```js
     var redis = require("redis"),
         client = redis.createClient();
 
@@ -469,6 +499,7 @@ A handy callback function for displaying return values when testing.  Example:
         client.set("foo_rand000000000000", "some fantastic value", redis.print);
         client.get("foo_rand000000000000", redis.print);
     });
+```
 
 This will print:
 
@@ -481,6 +512,7 @@ Note that this program will not exit cleanly because the client is still connect
 
 Boolean to enable debug mode and protocol tracing.
 
+```js
     var redis = require("redis"),
         client = redis.createClient();
 
@@ -489,6 +521,7 @@ Boolean to enable debug mode and protocol tracing.
     client.on("connect", function () {
         client.set("foo_rand000000000000", "some fantastic value");
     });
+```
 
 This will display:
 
@@ -511,8 +544,7 @@ Used internally to send commands to Redis.  For convenience, nearly all commands
 Wiki have been added to the `client` object.  However, if I missed any, or if new commands are introduced before
 this library is updated, you can use `send_command()` to send arbitrary commands to Redis.
 
-All commands are sent as multi-bulk commands.  `args` can either be an Array of arguments, or individual arguments,
-or omitted completely.
+All commands are sent as multi-bulk commands.  `args` can either be an Array of arguments, or omitted.
 
 ## client.connected
 
@@ -554,18 +586,34 @@ I think there are more performance improvements left in there for smaller values
 
 Some people have have added features and fixed bugs in `node_redis` other than me.
 
-In order of first contribution, they are:
+In alphabetical order, they are:
 
-*  [Tim Smart](https://github.com/Tim-Smart)
-*  [TJ Holowaychuk](https://github.com/visionmedia)
-*  [Rick Olson](https://github.com/technoweenie)
-*  [Orion Henry](https://github.com/orionz)
-*  [Hank Sims](https://github.com/hanksims)
-*  [Aivo Paas](https://github.com/aivopaas)
-*  [Paul Carey](https://github.com/paulcarey)
-*  [Pieter Noordhuis](https://github.com/pietern)
-*  [Vladimir Dronnikov](https://github.com/dvv)
-*  [Dave Hoover](https://github.com/redsquirrel)
+* [Aivo Paas](https://github.com/aivopaas)
+* [Andy Ray](https://github.com/DelvarWorld)
+* Daniele
+* [Dave Hoover](https://github.com/redsquirrel)
+* [David Trejo](https://github.com/DTrejo)
+* Dayananda Nanjundappa
+* [Felix Geisendörfer](https://github.com/felixge)
+* [Hank Sims](https://github.com/hanksims)
+* [Ian Babrou](https://github.com/bobrik)
+* [Isaac Z. Schlueter](https://github.com/isaacs)
+* [Louis-Philippe Perron](https://github.com/lp)
+* [Maksim Lin](https://github.com/maks)
+* [Marcus Westin](https://github.com/marcuswestin)
+* [Mark Dawson](https://github.com/markdaws)
+* [Nithesh Chandra Gupta Mittapally](https://github.com/nithesh)
+* [Orion Henry](https://github.com/orionz)
+* [Owen Smith](https://github.com/orls)
+* [Paul Carey](https://github.com/paulcarey)
+* [Philip Tellis](https://github.com/bluesmoon)
+* [Pieter Noordhuis](https://github.com/pietern)
+* [Rick Olson](https://github.com/technoweenie)
+* [Tim Smart](https://github.com/Tim-Smart)
+* [TJ Holowaychuk](https://github.com/visionmedia)
+* [Umair Siddique](https://github.com/umairsiddique)
+* [Vladimir Dronnikov](https://github.com/dvv)
+* [Zachary Scott](https://github.com/zzak)
 
 Thanks.
 
