@@ -50,6 +50,11 @@ function RedisClient(stream, options) {
     if (options.connect_timeout && !isNaN(options.connect_timeout) && options.connect_timeout > 0) {
         this.connect_timeout = +options.connect_timeout;
     }
+
+    if (options.retry_backoff && !isNaN(options.retry_backoff) && options.retry_backoff > 0) {
+      this.retry_backoff = +options.retry_backoff;
+    }
+
     this.initialize_retry_vars();
     this.pub_sub_mode = false;
     this.subscription_set = {};
@@ -95,7 +100,7 @@ exports.RedisClient = RedisClient;
 RedisClient.prototype.initialize_retry_vars = function () {
     this.retry_timer = null;
     this.retry_totaltime = 0;
-    this.retry_delay = 150;
+    this.retry_delay = 250;
     this.retry_backoff = 1.7;
     this.attempts = 1;
 };
@@ -396,7 +401,7 @@ RedisClient.prototype.connection_gone = function (why) {
     this.retry_delay = Math.floor(this.retry_delay * this.retry_backoff);
 
     if (exports.debug_mode) {
-        console.log("Retry connection in " + this.current_retry_delay + " ms");
+        console.log("Retry connection in " + this.retry_delay + " ms");
     }
 
     if (this.max_attempts && this.attempts >= this.max_attempts) {
@@ -417,7 +422,7 @@ RedisClient.prototype.connection_gone = function (why) {
             console.log("Retrying connection...");
         }
 
-        self.retry_totaltime += self.current_retry_delay;
+        self.retry_totaltime += self.retry_delay;
 
         if (self.connect_timeout && self.retry_totaltime >= self.connect_timeout) {
             self.retry_timer = null;
@@ -670,13 +675,14 @@ RedisClient.prototype.send_command = function (command, args, callback) {
         return false;
     }
 
+
     if (command === "subscribe" || command === "psubscribe" || command === "unsubscribe" || command === "punsubscribe") {
         this.pub_sub_command(command_obj);
     } else if (command === "monitor") {
         this.monitoring = true;
     } else if (command === "quit") {
         this.closing = true;
-    } else if (this.pub_sub_mode === true) {
+    } else if ((this.pub_sub_mode === true) && (command != 'info')) {
         throw new Error("Connection in pub/sub mode, only pub/sub commands may be used");
     }
     this.command_queue.push(command_obj);
@@ -756,20 +762,16 @@ RedisClient.prototype.pub_sub_command = function (command_obj) {
     command = command_obj.command;
     args = command_obj.args;
     if (command === "subscribe" || command === "psubscribe") {
-        if (command === "subscribe") {
-            key = "sub";
-        } else {
-            key = "psub";
-        }
+
+        key = command;
+
         for (i = 0; i < args.length; i++) {
             this.subscription_set[key + " " + args[i]] = true;
         }
     } else {
-        if (command === "unsubscribe") {
-            key = "sub";
-        } else {
-            key = "psub";
-        }
+
+        key = command;
+
         for (i = 0; i < args.length; i++) {
             delete this.subscription_set[key + " " + args[i]];
         }
