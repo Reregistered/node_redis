@@ -684,7 +684,7 @@ RedisClient.prototype.send_command = function (command, args, callback) {
         this.closing = true;
     } else if ((this.pub_sub_mode === true) && (command != 'info')) {
         throw new Error("Connection in pub/sub mode, only pub/sub commands may be used");
-    }
+      }
     this.command_queue.push(command_obj);
     this.commands_sent += 1;
 
