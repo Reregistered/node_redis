@@ -50,11 +50,9 @@ function RedisClient(stream, options) {
     if (options.connect_timeout && !isNaN(options.connect_timeout) && options.connect_timeout > 0) {
         this.connect_timeout = +options.connect_timeout;
     }
-
     if (options.retry_backoff && !isNaN(options.retry_backoff) && options.retry_backoff > 0) {
       this.retry_backoff = +options.retry_backoff;
     }
-
     this.initialize_retry_vars();
     this.pub_sub_mode = false;
     this.subscription_set = {};
@@ -101,7 +99,7 @@ RedisClient.prototype.initialize_retry_vars = function () {
     this.retry_timer = null;
     this.retry_totaltime = 0;
     this.retry_delay = 250;
-    this.retry_backoff = 1.7;
+    this.retry_backoff = 1;
     this.attempts = 1;
 };
 
@@ -675,7 +673,6 @@ RedisClient.prototype.send_command = function (command, args, callback) {
         return false;
     }
 
-
     if (command === "subscribe" || command === "psubscribe" || command === "unsubscribe" || command === "punsubscribe") {
         this.pub_sub_command(command_obj);
     } else if (command === "monitor") {
@@ -684,7 +681,7 @@ RedisClient.prototype.send_command = function (command, args, callback) {
         this.closing = true;
     } else if ((this.pub_sub_mode === true) && (command != 'info')) {
         throw new Error("Connection in pub/sub mode, only pub/sub commands may be used");
-      }
+    }
     this.command_queue.push(command_obj);
     this.commands_sent += 1;
 
@@ -761,17 +758,14 @@ RedisClient.prototype.pub_sub_command = function (command_obj) {
 
     command = command_obj.command;
     args = command_obj.args;
+	key = command;
     if (command === "subscribe" || command === "psubscribe") {
-
-        key = command;
-
+       
         for (i = 0; i < args.length; i++) {
             this.subscription_set[key + " " + args[i]] = true;
         }
     } else {
-
-        key = command;
-
+        
         for (i = 0; i < args.length; i++) {
             delete this.subscription_set[key + " " + args[i]];
         }
