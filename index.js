@@ -26,6 +26,8 @@ try {
 parsers.push(require("./lib/parser/javascript"));
 
 function RedisClient(stream, options) {
+
+    this.random = Math.floor(100*Math.random()); // used for debugging.
     this.stream = stream;
     this.options = options = options || {};
 
@@ -50,10 +52,14 @@ function RedisClient(stream, options) {
     if (options.connect_timeout && !isNaN(options.connect_timeout) && options.connect_timeout > 0) {
         this.connect_timeout = +options.connect_timeout;
     }
+
+    this.initialize_retry_vars();
+
+    this.retry_backoff = 1.7;
     if (options.retry_backoff && !isNaN(options.retry_backoff) && options.retry_backoff > 0) {
       this.retry_backoff = +options.retry_backoff;
     }
-    this.initialize_retry_vars();
+
     this.pub_sub_mode = false;
     this.subscription_set = {};
     this.monitoring = false;
@@ -96,11 +102,10 @@ util.inherits(RedisClient, events.EventEmitter);
 exports.RedisClient = RedisClient;
 
 RedisClient.prototype.initialize_retry_vars = function () {
-    this.retry_timer = null;
-    this.retry_totaltime = 0;
-    this.retry_delay = 250;
-    this.retry_backoff = 1;
-    this.attempts = 1;
+    this.retry_timer      = null;
+    this.retry_totaltime  = 0;
+    this.retry_delay      = 250;
+    this.attempts         = 1;
 };
 
 // flush offline_queue and command_queue, erroring any items with a callback first
@@ -673,6 +678,7 @@ RedisClient.prototype.send_command = function (command, args, callback) {
         return false;
     }
 
+
     if (command === "subscribe" || command === "psubscribe" || command === "unsubscribe" || command === "punsubscribe") {
         this.pub_sub_command(command_obj);
     } else if (command === "monitor") {
@@ -681,7 +687,7 @@ RedisClient.prototype.send_command = function (command, args, callback) {
         this.closing = true;
     } else if ((this.pub_sub_mode === true) && (command != 'info')) {
         throw new Error("Connection in pub/sub mode, only pub/sub commands may be used");
-    }
+      }
     this.command_queue.push(command_obj);
     this.commands_sent += 1;
 
@@ -758,14 +764,14 @@ RedisClient.prototype.pub_sub_command = function (command_obj) {
 
     command = command_obj.command;
     args = command_obj.args;
-	key = command;
+    key = command;
     if (command === "subscribe" || command === "psubscribe") {
-       
+
         for (i = 0; i < args.length; i++) {
             this.subscription_set[key + " " + args[i]] = true;
         }
     } else {
-        
+
         for (i = 0; i < args.length; i++) {
             delete this.subscription_set[key + " " + args[i]];
         }
