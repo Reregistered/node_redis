@@ -53,6 +53,11 @@ function RedisClient(stream, options) {
         this.connect_timeout = +options.connect_timeout;
     }
 
+    this.enable_offline_queue = true;
+    if (typeof this.options.enable_offline_queue === "boolean") {
+        this.enable_offline_queue = this.options.enable_offline_queue;
+    }
+
     this.initialize_retry_vars();
 
     this.retry_backoff = 1.7;
@@ -68,7 +73,9 @@ function RedisClient(stream, options) {
     this.auth_pass = null;
     this.parser_module = null;
     this.selected_db = null;	// save the selected db here, used when reconnecting
-	
+
+    this.old_state = null;
+
     var self = this;
 
     this.stream.on("connect", function () {
@@ -274,18 +281,35 @@ RedisClient.prototype.on_ready = function () {
 
     this.ready = true;
 
+    if (this.old_state !== null) {
+        this.monitoring = this.old_state.monitoring;
+        this.pub_sub_mode = this.old_state.pub_sub_mode;
+        this.selected_db = this.old_state.selected_db;
+        this.old_state = null;
+    }
+
     // magically restore any modal commands from a previous connection
     if (this.selected_db !== null) {
         this.send_command('select', [this.selected_db]);
     }
     if (this.pub_sub_mode === true) {
+        // only emit "ready" when all subscriptions were made again
+        var callback_count = 0;
+        var callback = function() {
+            callback_count--;
+            if (callback_count == 0) {
+                self.emit("ready");
+            }
+        }
         Object.keys(this.subscription_set).forEach(function (key) {
             var parts = key.split(" ");
             if (exports.debug_mode) {
                 console.warn("sending pub/sub on_ready " + parts[0] + ", " + parts[1]);
             }
-            self.send_command(parts[0], [parts[1]]);
+            callback_count++;
+            self.send_command(parts[0] + "scribe", [parts[1]], callback);
         });
+        return;
     } else if (this.monitoring) {
         this.send_command("monitor");
     } else {
@@ -383,6 +407,18 @@ RedisClient.prototype.connection_gone = function (why) {
     }
     this.connected = false;
     this.ready = false;
+
+    if (this.old_state === null) {
+        var state = {
+            monitoring: this.monitoring,
+            pub_sub_mode: this.pub_sub_mode,
+            selected_db: this.selected_db
+        };
+        this.old_state = state;
+        this.monitoring = false;
+        this.pub_sub_mode = false;
+        this.selected_db = null;
+    }
 
     // since we are collapsing end and close, users don't expect to be called twice
     if (! this.emitted_end) {
@@ -533,8 +569,9 @@ function reply_to_strings(reply) {
 
 RedisClient.prototype.return_reply = function (reply) {
     var command_obj, obj, i, len, type, timestamp, argindex, args, queue_len;
-    
-    queue_len = this.command_queue.getLength();
+
+    command_obj = this.command_queue.shift(),
+    queue_len   = this.command_queue.getLength();
 
     if (this.pub_sub_mode === false && queue_len === 0) {
         this.emit("idle");
@@ -544,8 +581,6 @@ RedisClient.prototype.return_reply = function (reply) {
         this.emit("drain");
         this.should_buffer = false;
     }
-
-    command_obj = this.command_queue.shift();
 
     if (command_obj && !command_obj.sub_command) {
         if (typeof command_obj.callback === "function") {
@@ -670,11 +705,23 @@ RedisClient.prototype.send_command = function (command, args, callback) {
             if (!stream.writable) {
                 console.log("send command: stream is not writeable.");
             }
-            
-            console.log("Queueing " + command + " for next server connection.");
         }
-        this.offline_queue.push(command_obj);
-        this.should_buffer = true;
+
+        if (this.enable_offline_queue) {
+            if (exports.debug_mode) {
+                console.log("Queueing " + command + " for next server connection.");
+            }
+            this.offline_queue.push(command_obj);
+            this.should_buffer = true;
+        } else {
+            var not_writeable_error = new Error('send_command: stream not writeable. enable_offline_queue is false');
+            if (command_obj.callback) {
+                command_obj.callback(not_writeable_error);
+            } else {
+                throw not_writeable_error;
+            }
+        }
+
         return false;
     }
 
@@ -755,7 +802,7 @@ RedisClient.prototype.send_command = function (command, args, callback) {
 
 RedisClient.prototype.pub_sub_command = function (command_obj) {
     var i, key, command, args;
-    
+
     if (this.pub_sub_mode === false && exports.debug_mode) {
         console.log("Entering pub/sub mode from " + command_obj.command);
     }
@@ -798,7 +845,7 @@ exports.Multi = Multi;
 // take 2 arrays and return the union of their elements
 function set_union(seta, setb) {
     var obj = {};
-    
+
     seta.forEach(function (val) {
         obj[val] = true;
     });
