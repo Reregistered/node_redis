@@ -569,13 +569,9 @@ function reply_to_strings(reply) {
 
 RedisClient.prototype.return_reply = function (reply) {
     var command_obj, obj, i, len, type, timestamp, argindex, args, queue_len;
-    
+
     command_obj = this.command_queue.shift(),
     queue_len   = this.command_queue.getLength();
-
-    console.log("Redis reply: ", reply);
-    console.log("  command: ", command_obj);
-    console.log("    q len: ", queue_len);
 
     if (this.pub_sub_mode === false && queue_len === 0) {
         this.emit("idle");
