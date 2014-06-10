@@ -1075,8 +1075,6 @@ exports.createClient = function (port_arg, host_arg, options) {
 
     redis_client.port = port;
     redis_client.host = host;
-    
-    redis_client.setex(['find:client:port', 1 ,100], function(){});
 
     return redis_client;
 };
